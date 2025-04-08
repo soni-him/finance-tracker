@@ -1,0 +1,15 @@
+/target
+/classes
+/checkouts
+profiles.clj
+pom.xml
+pom.xml.asc
+*.jar
+*.class
+/.lein-*
+/.nrepl-port
+/.prepl-port
+.hgignore
+.hg/
+
+resources/clever-dolphin-456211-k8-b1f5d125a5a9.json
