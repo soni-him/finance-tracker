@@ -1,4 +1,24 @@
 (ns finance-tracker.core
+  (:require
+    [clojure.java.io :as io]
+    [cheshire.core :as json]) ; Optional but useful later
+
+  (:import
+    ;; Java I/O
+    (java.io FileInputStream)
+    (java.util List Collections)
+
+    ;; Google Auth
+    (com.google.auth.oauth2 ServiceAccountCredentials)
+
+    ;; Google API HTTP & JSON
+    (com.google.api.client.googleapis.javanet GoogleNetHttpTransport)
+    (com.google.api.client.json.jackson2 JacksonFactory)
+
+    ;; Google Sheets API
+    (com.google.api.services.sheets.v4 Sheets SheetsScopes)
+    (com.google.api.services.sheets.v4.model ValueRange))
+
   (:gen-class))
 
 
