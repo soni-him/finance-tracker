@@ -26,11 +26,14 @@
 ;; Define the name of your Service Account key file.
 ;; IMPORTANT: Place this file inside the 'resources' directory in your project root
 ;; and replace the placeholder below with the actual filename.
-(def ^:private SERVICE_ACCOUNT_KEY_FILE "your_service_account_key.json")
+(def ^:private SERVICE_ACCOUNT_KEY_FILE "clever-dolphin-456211-k8-b1f5d125a5a9.json")
 
 ;; Define the permissions (scopes) needed. SPREADSHEETS gives read/write access.
 ;; Collections/singletonList creates the Java List format needed by the Google library.
 (def ^:private SCOPES (Collections/singletonList SheetsScopes/SPREADSHEETS))
+
+;; Define a name for your application (this is recommended by Google, can be anything)
+(def ^:private APPLICATION_NAME "Finance Tracker Clojure")
 
 ;; === Authentication Function ===
 
@@ -59,7 +62,8 @@
         ;; Step 4: Parse the JSON key file stream into credentials.
         ;; This step might fail if the JSON is invalid, so we use try/catch.
         (try ;; Use try-catch for potential errors during parsing/scoping
-          (let [^ServiceAccountCredentials loaded-credentials (ServiceAccountCredentials/fromStream credential-stream)]
+          (let [^ServiceAccountCredentials loaded-credentials  (ServiceAccountCredentials/fromStream credential-stream)]  
+            ;; TODO: Silence reflection warning later if needed
             (println "INFO: Key file loaded successfully.")
 
             ;; Step 5: Apply the defined SCOPES to the credentials.
@@ -81,6 +85,30 @@
       ) ; End of if-not resource-url
     ) ; End of outer let (resource-url)
   ) ; End of defn get-credentials
+
+;; === Function to Build the Sheets Service ===
+
+(defn build-sheets-service
+  "Uses authorized credentials to build and return a Google Sheets API service object
+   which is used to make API calls."
+  [credentials] ; Takes the credential object (output of get-credentials) as input
+  (println "INFO: Building Google Sheets service...")
+  (try
+    ;; Step 1: Get the HTTP transport layer
+    (let [http-transport (GoogleNetHttpTransport/newTrustedTransport)]
+      ;; Step 2: Get the JSON factory (USING GSON)
+      (let [json-factory (GsonFactory/getDefaultInstance)] ; Uses GsonFactory
+        ;; Step 3: Build the Sheets service object
+        (let [service (-> (Sheets$Builder. http-transport json-factory credentials)
+                          (.setApplicationName APPLICATION_NAME)
+                          (.build))]
+          (println "INFO: Google Sheets service built successfully.")
+          service))) ; Return the service object
+    ;; Step 4: Handle any errors during building
+    (catch Exception e
+      (println (str "ERROR: Failed to build Google Sheets service: " (.getMessage e)))
+      (throw e))))
+
 
 ;; Step 1: Identify Transaction Type
 (defn transaction-type [text]
