@@ -6,7 +6,8 @@
   :dependencies [[org.clojure/clojure "1.11.1"]
                  [com.google.api-client/google-api-client "2.7.2"]
                  [com.google.oauth-client/google-oauth-client-jetty "1.39.0"]
-                 [cheshire/cheshire "5.13.0"]]
+                 [cheshire/cheshire "5.13.0"]
+                 [clj-http "3.13.0"]]
   :main ^:skip-aot finance-tracker.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all
