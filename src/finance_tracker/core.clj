@@ -151,26 +151,38 @@
   [& args]
   (println "Starting Finance Tracker...")
   (let [config (load-config)
-        spreadsheet-id (:spreadsheet-id config)] 
+        spreadsheet-id (:spreadsheet-id config)]
     (if-not spreadsheet-id
-      (println (str "FATAL ERROR: :spreadsheet-id key not found in " 
-                    (-> (io/file "config.edn") .getAbsolutePath) 
+      (println (str "FATAL ERROR: :spreadsheet-id key not found in "
+                    (-> (io/file "config.edn") .getAbsolutePath)
                     " or config file missing/invalid."))
-      (do 
-        (println (str "INFO: Using Spreadsheet ID: " spreadsheet-id)) 
+      (do
+        (println (str "INFO: Using Spreadsheet ID: " spreadsheet-id))
         (try
-          (let [credentials (get-credentials)] 
+          (let [credentials (get-credentials)]
             (println "INFO: Credentials obtained.")
-            (let [service (build-sheets-service credentials)] 
+            (let [service (build-sheets-service credentials)
+                  demo-data [(extract-info "Rs. 5000 credited: to your account XXXX1234 on 30-Mar")
+                             (extract-info "Rs. 1200.50 debited from your account XXXX1234 on 28-Feb")]]
               (println "INFO: Sheets service object created successfully.")
-
-              (println "\nTODO: Add Google Sheets interaction logic here using 'service' and 'spreadsheet-id'.")
-
+              ;; Writing logic with fixed values
+              (let [range "Sheet1!A1:C3"
+                    values (into [["Type" "Amount" "Date"]]
+                                 (map (fn [entry] [(name (:type entry)) (:amount entry) (:date entry)]) demo-data))
+                    value-range (doto (ValueRange.)
+                                  (.setValues values))
+                    response (.update (.values (.spreadsheets service))
+                                      spreadsheet-id
+                                      range
+                                      value-range)]
+                (println "\nWriting data to spreadsheet...")
+                (.setValueInputOption response "USER_ENTERED")
+                (.execute response)
+                (println "Data written to range" range))
+              ;; Demo output
               (println "\nDemo Parsing Output:")
-              (println (extract-info "Rs. 5000 credited: to your account XXXX1234 on 30-Mar"))
-              (println (extract-info "Rs. 1200.50 debited from your account XXXX1234 on 28-Feb"))
-
+              (doseq [entry demo-data]
+                (println entry))
               (println "\nSUCCESS: Setup complete (Config loaded, Auth, Service Build). Ready for Sheet operations.")))
           (catch Exception e
             (println (str "\nFATAL ERROR in -main: Could not complete setup - " (.getMessage e)))))))))
-
