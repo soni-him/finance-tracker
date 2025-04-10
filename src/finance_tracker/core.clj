@@ -9,7 +9,9 @@
     (java.util List Collections)
 
     ;; Google Auth
-    (com.google.auth.oauth2 ServiceAccountCredentials)
+    ; (com.google.auth.oauth2 ServiceAccountCredentials)    - removing it 
+    (com.google.api.client.googleapis.auth.oauth2 GoogleCredential)  ; -adding this
+
 
     ;; Google API HTTP & JSON
     (com.google.api.client.googleapis.javanet GoogleNetHttpTransport)
@@ -17,7 +19,8 @@
 
     ;; Google Sheets API
     (com.google.api.services.sheets.v4 Sheets SheetsScopes)
-    (com.google.api.services.sheets.v4.model ValueRange))
+    (com.google.api.services.sheets.v4.model ValueRange)
+    (com.google.api.services.sheets.v4 Sheets SheetsScopes Sheets$Builder))
 
   (:gen-class))
 
@@ -62,7 +65,7 @@
         ;; Step 4: Parse the JSON key file stream into credentials.
         ;; This step might fail if the JSON is invalid, so we use try/catch.
         (try ;; Use try-catch for potential errors during parsing/scoping
-          (let [^ServiceAccountCredentials loaded-credentials  (ServiceAccountCredentials/fromStream credential-stream)]  
+          (let [^GoogleCredential loaded-credentials  (GoogleCredential/fromStream credential-stream)]  
             ;; TODO: Silence reflection warning later if needed
             (println "INFO: Key file loaded successfully.")
 
@@ -136,10 +139,33 @@
     (merge {:type type}
            (apply merge (map #(% text) extraction-fns)))))
 
-(defn -main
-  [& args]
+;; === Main Function (Updated for Setup Test) ===
 
+(defn -main
+  "Main entry point. Authenticates and builds service to test setup."
+  [& args]
   (println "Starting Finance Tracker...")
-  (println (extract-info "Rs. 5000 credited: to your account XXXX1234 on 30-Mar"))
-  (println (extract-info "Rs. 1200.50 debited from your account XXXX1234 on 28-Feb")))
-    
+  (try
+    ;; Step 1: Authenticate and get credentials
+    (let [credentials (get-credentials)] ;; Call the first function
+      (println "INFO: Credentials obtained.")
+
+      ;; Step 2: Build the Sheets service object using the credentials
+      (let [service (build-sheets-service credentials)] ;; Call the second function
+        (println "INFO: Sheets service object created successfully.")
+
+        ;; --- Placeholder for future steps ---
+        (println "\nTODO: Add Google Sheets interaction logic here using the 'service' object later.")
+
+        ;; We can still print the demo parsing output for now:
+        (println "\nDemo Parsing Output:")
+        (println (extract-info "Rs. 5000 credited: to your account XXXX1234 on 30-Mar"))
+        (println (extract-info "Rs. 1200.50 debited from your account XXXX1234 on 28-Feb"))
+
+        (println "\nSUCCESS: Setup complete (Authentication and Service Build). Ready for Sheet operations.")))
+      
+    ;; Step 3: Catch any errors during the setup process
+    (catch Exception e
+      (println (str "\nFATAL ERROR in -main: Could not complete setup - " (.getMessage e)))
+      ;; Depending on desired behaviour, you might exit or handle differently
+      )))
