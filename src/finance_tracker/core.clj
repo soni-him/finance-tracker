@@ -10,7 +10,7 @@
     (com.google.auth.http HttpCredentialsAdapter)  ;; Added this
     (com.google.api.client.googleapis.javanet GoogleNetHttpTransport)
     (com.google.api.client.json.gson GsonFactory)
-    (com.google.api.services.sheets.v4.model ValueRange)
+    (com.google.api.services.sheets.v4.model ValueRange Request RepeatCellRequest GridRange CellData CellFormat TextFormat BatchUpdateSpreadsheetRequest)
     (com.google.api.services.sheets.v4 Sheets SheetsScopes Sheets$Builder))
   (:gen-class))
 
@@ -165,7 +165,7 @@
                   demo-data [(extract-info "Rs. 5000 credited: to your account XXXX1234 on 30-Mar")
                              (extract-info "Rs. 1200.50 debited from your account XXXX1234 on 28-Feb")]]
               (println "INFO: Sheets service object created successfully.")
-              ;; Writing logic with fixed values
+              ;; Write data (unchanged)
               (let [range "Sheet1!A1:C3"
                     values (into [["Type" "Amount" "Date"]]
                                  (map (fn [entry] [(name (:type entry)) (:amount entry) (:date entry)]) demo-data))
@@ -179,6 +179,27 @@
                 (.setValueInputOption response "USER_ENTERED")
                 (.execute response)
                 (println "Data written to range" range))
+              ;; Bold the header row (fixed with int casts)
+              (let [request (doto (Request.)
+                              (.setRepeatCell
+                                (doto (RepeatCellRequest.)
+                                  (.setRange (doto (GridRange.)
+                                               (.setSheetId (int 0))  ;; Cast to Integer
+                                               (.setStartRowIndex (int 0))
+                                               (.setEndRowIndex (int 1))
+                                               (.setStartColumnIndex (int 0))
+                                               (.setEndColumnIndex (int 3))))
+                                  (.setCell (doto (CellData.)
+                                              (.setUserEnteredFormat
+                                                (doto (CellFormat.)
+                                                  (.setTextFormat (doto (TextFormat.)
+                                                                    (.setBold true)))))))
+                                  (.setFields "userEnteredFormat.textFormat.bold"))))
+                    batch-request (doto (BatchUpdateSpreadsheetRequest.)
+                                    (.setRequests [request]))]
+                (println "Applying bold formatting to headers...")
+                (.execute (.batchUpdate (.spreadsheets service) spreadsheet-id batch-request))
+                (println "Headers formatted as bold."))
               ;; Demo output
               (println "\nDemo Parsing Output:")
               (doseq [entry demo-data]
