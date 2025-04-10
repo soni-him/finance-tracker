@@ -2,7 +2,9 @@
   (:require
     [clojure.java.io :as io]
     [clojure.edn :as edn]
-    [cheshire.core :as json])
+    [cheshire.core :as json]
+    [clj-http.client :as http]) ;; added this 
+
   (:import
     (java.io FileInputStream)
     (java.util List Collections)
