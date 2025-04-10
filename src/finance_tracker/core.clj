@@ -1,27 +1,17 @@
 (ns finance-tracker.core
   (:require
     [clojure.java.io :as io]
-    [cheshire.core :as json]) ; Optional but useful later
-
+    [clojure.edn :as edn]
+    [cheshire.core :as json])
   (:import
-    ;; Java I/O
     (java.io FileInputStream)
     (java.util List Collections)
-
-    ;; Google Auth
-    ; (com.google.auth.oauth2 ServiceAccountCredentials)    - removing it 
-    (com.google.api.client.googleapis.auth.oauth2 GoogleCredential)  ; -adding this
-
-
-    ;; Google API HTTP & JSON
+    (com.google.auth.oauth2 GoogleCredentials)
+    (com.google.auth.http HttpCredentialsAdapter)  ;; Added this
     (com.google.api.client.googleapis.javanet GoogleNetHttpTransport)
     (com.google.api.client.json.gson GsonFactory)
-
-    ;; Google Sheets API
-    (com.google.api.services.sheets.v4 Sheets SheetsScopes)
     (com.google.api.services.sheets.v4.model ValueRange)
     (com.google.api.services.sheets.v4 Sheets SheetsScopes Sheets$Builder))
-
   (:gen-class))
 
 ;; === Google API Configuration ===
@@ -37,6 +27,24 @@
 
 ;; Define a name for your application (this is recommended by Google, can be anything)
 (def ^:private APPLICATION_NAME "Finance Tracker Clojure")
+
+;; === Configuration Loading ===
+
+(defn load-config
+  "Reads config.edn from the project root and returns it as a Clojure map.
+   Returns an empty map if file not found or parsing fails."
+  []
+  (let [config-file (io/file "config.edn")] ; Looks for config.edn in project root
+    (if (.exists config-file)
+      (try
+        ;; Read the whole file content and parse it as EDN data
+        (edn/read-string (slurp config-file))
+        (catch Exception e
+          (println (str "ERROR: Could not parse config.edn - " (.getMessage e)))
+          {})) ; Return empty map on parsing error
+      (do
+        (println "WARNING: config.edn file not found in project root.")
+        {})))) ; Return empty map if file not found
 
 ;; === Authentication Function ===
 
@@ -65,7 +73,7 @@
         ;; Step 4: Parse the JSON key file stream into credentials.
         ;; This step might fail if the JSON is invalid, so we use try/catch.
         (try ;; Use try-catch for potential errors during parsing/scoping
-          (let [^GoogleCredential loaded-credentials  (GoogleCredential/fromStream credential-stream)]  
+          (let [^GoogleCredentials loaded-credentials  (GoogleCredentials/fromStream credential-stream)]  
             ;; TODO: Silence reflection warning later if needed
             (println "INFO: Key file loaded successfully.")
 
@@ -89,29 +97,23 @@
     ) ; End of outer let (resource-url)
   ) ; End of defn get-credentials
 
-;; === Function to Build the Sheets Service ===
+;; === Function to Build the Sheets Service (Using Direct Constructor - TRY THIS) ===
 
 (defn build-sheets-service
   "Uses authorized credentials to build and return a Google Sheets API service object
    which is used to make API calls."
-  [credentials] ; Takes the credential object (output of get-credentials) as input
-  (println "INFO: Building Google Sheets service...")
+  [credentials]
+  (println "INFO: Building Google Sheets service (using direct constructor)...")
   (try
-    ;; Step 1: Get the HTTP transport layer
-    (let [http-transport (GoogleNetHttpTransport/newTrustedTransport)]
-      ;; Step 2: Get the JSON factory (USING GSON)
-      (let [json-factory (GsonFactory/getDefaultInstance)] ; Uses GsonFactory
-        ;; Step 3: Build the Sheets service object
-        (let [service (-> (Sheets$Builder. http-transport json-factory credentials)
-                          (.setApplicationName APPLICATION_NAME)
-                          (.build))]
-          (println "INFO: Google Sheets service built successfully.")
-          service))) ; Return the service object
-    ;; Step 4: Handle any errors during building
+    (let [http-transport (GoogleNetHttpTransport/newTrustedTransport)
+          json-factory (GsonFactory/getDefaultInstance)
+          http-credentials (HttpCredentialsAdapter. credentials)  ;; Wrap credentials
+          service (Sheets. http-transport json-factory http-credentials)]
+      (println "INFO: Google Sheets service built successfully (using direct constructor).")
+      service)
     (catch Exception e
       (println (str "ERROR: Failed to build Google Sheets service: " (.getMessage e)))
       (throw e))))
-
 
 ;; Step 1: Identify Transaction Type
 (defn transaction-type [text]
@@ -139,33 +141,34 @@
     (merge {:type type}
            (apply merge (map #(% text) extraction-fns)))))
 
-;; === Main Function (Updated for Setup Test) ===
+;; === Main Function (Corrected Parentheses) ===
+
 
 (defn -main
-  "Main entry point. Authenticates and builds service to test setup."
+  "Main entry point. Loads config, authenticates, builds service."
   [& args]
   (println "Starting Finance Tracker...")
-  (try
-    ;; Step 1: Authenticate and get credentials
-    (let [credentials (get-credentials)] ;; Call the first function
-      (println "INFO: Credentials obtained.")
+  (let [config (load-config)
+        spreadsheet-id (:spreadsheet-id config)] 
+    (if-not spreadsheet-id
+      (println (str "FATAL ERROR: :spreadsheet-id key not found in " 
+                    (-> (io/file "config.edn") .getAbsolutePath) 
+                    " or config file missing/invalid."))
+      (do 
+        (println (str "INFO: Using Spreadsheet ID: " spreadsheet-id)) 
+        (try
+          (let [credentials (get-credentials)] 
+            (println "INFO: Credentials obtained.")
+            (let [service (build-sheets-service credentials)] 
+              (println "INFO: Sheets service object created successfully.")
 
-      ;; Step 2: Build the Sheets service object using the credentials
-      (let [service (build-sheets-service credentials)] ;; Call the second function
-        (println "INFO: Sheets service object created successfully.")
+              (println "\nTODO: Add Google Sheets interaction logic here using 'service' and 'spreadsheet-id'.")
 
-        ;; --- Placeholder for future steps ---
-        (println "\nTODO: Add Google Sheets interaction logic here using the 'service' object later.")
+              (println "\nDemo Parsing Output:")
+              (println (extract-info "Rs. 5000 credited: to your account XXXX1234 on 30-Mar"))
+              (println (extract-info "Rs. 1200.50 debited from your account XXXX1234 on 28-Feb"))
 
-        ;; We can still print the demo parsing output for now:
-        (println "\nDemo Parsing Output:")
-        (println (extract-info "Rs. 5000 credited: to your account XXXX1234 on 30-Mar"))
-        (println (extract-info "Rs. 1200.50 debited from your account XXXX1234 on 28-Feb"))
+              (println "\nSUCCESS: Setup complete (Config loaded, Auth, Service Build). Ready for Sheet operations.")))
+          (catch Exception e
+            (println (str "\nFATAL ERROR in -main: Could not complete setup - " (.getMessage e)))))))))
 
-        (println "\nSUCCESS: Setup complete (Authentication and Service Build). Ready for Sheet operations.")))
-      
-    ;; Step 3: Catch any errors during the setup process
-    (catch Exception e
-      (println (str "\nFATAL ERROR in -main: Could not complete setup - " (.getMessage e)))
-      ;; Depending on desired behaviour, you might exit or handle differently
-      )))
