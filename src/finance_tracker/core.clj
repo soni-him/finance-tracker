@@ -145,32 +145,47 @@
     (merge {:type type}
            (apply merge (map #(% text) extraction-fns)))))
 
-;; === Main Function (Corrected Parentheses) ===
+;; extracting data using open ai api
 
+(defn extract-with-open-ai
+  "Uses Open AI API to extract type, amount, and date from a bank statement."
+  [statement api-key]
+  (let [prompt (str "Extract the transaction type (credit or debit), amount (as a number), and date from this bank statement: \"" statement "\". Return as JSON like {\"type\": \"credit\", \"amount\": 5000.0, \"date\": \"30-Mar\"}.")
+        response (http/post "https://api.openai.com/v1/chat/completions"
+                           {:headers {"Authorization" (str "Bearer " api-key)
+                                      "Content-Type" "application/json"}
+                            :body (json/generate-string
+                                   {:model "gpt-3.5-turbo"
+                                    :messages [{:role "user" :content prompt}]
+                                    :max_tokens 100})
+                            :as :json})]
+    (-> response :body :choices first :message :content json/parse-string)))
+
+
+;; main function using extract-with-open-ai
 
 (defn -main
   "Main entry point. Loads config, authenticates, builds service."
   [& args]
   (println "Starting Finance Tracker...")
   (let [config (load-config)
-        spreadsheet-id (:spreadsheet-id config)]
-    (if-not spreadsheet-id
-      (println (str "FATAL ERROR: :spreadsheet-id key not found in "
-                    (-> (io/file "config.edn") .getAbsolutePath)
-                    " or config file missing/invalid."))
+        spreadsheet-id (:spreadsheet-id config)
+        api-key (:open-ai-api-key config)]
+    (if-not (and spreadsheet-id api-key)
+      (println (str "FATAL ERROR: Missing :spreadsheet-id or :open-ai-api-key in "
+                    (-> (io/file "config.edn") .getAbsolutePath)))
       (do
         (println (str "INFO: Using Spreadsheet ID: " spreadsheet-id))
         (try
           (let [credentials (get-credentials)]
             (println "INFO: Credentials obtained.")
             (let [service (build-sheets-service credentials)
-                  demo-data [(extract-info "Rs. 5000 credited: to your account XXXX1234 on 30-Mar")
-                             (extract-info "Rs. 1200.50 debited from your account XXXX1234 on 28-Feb")]]
+                  demo-data [(extract-with-open-ai "Rs. 5000 credited: to your account XXXX1234 on 30-Mar" api-key)
+                             (extract-with-open-ai "Rs. 1200.50 debited from your account XXXX1234 on 28-Feb" api-key)]]
               (println "INFO: Sheets service object created successfully.")
-              ;; Write data (unchanged)
               (let [range "Sheet1!A1:C3"
                     values (into [["Type" "Amount" "Date"]]
-                                 (map (fn [entry] [(name (:type entry)) (:amount entry) (:date entry)]) demo-data))
+                                 (map (fn [entry] [(entry "type") (entry "amount") (entry "date")]) demo-data))
                     value-range (doto (ValueRange.)
                                   (.setValues values))
                     response (.update (.values (.spreadsheets service))
@@ -181,12 +196,11 @@
                 (.setValueInputOption response "USER_ENTERED")
                 (.execute response)
                 (println "Data written to range" range))
-              ;; Bold the header row (fixed with int casts)
               (let [request (doto (Request.)
                               (.setRepeatCell
                                 (doto (RepeatCellRequest.)
                                   (.setRange (doto (GridRange.)
-                                               (.setSheetId (int 0))  ;; Cast to Integer
+                                               (.setSheetId (int 0))
                                                (.setStartRowIndex (int 0))
                                                (.setEndRowIndex (int 1))
                                                (.setStartColumnIndex (int 0))
@@ -202,7 +216,6 @@
                 (println "Applying bold formatting to headers...")
                 (.execute (.batchUpdate (.spreadsheets service) spreadsheet-id batch-request))
                 (println "Headers formatted as bold."))
-              ;; Demo output
               (println "\nDemo Parsing Output:")
               (doseq [entry demo-data]
                 (println entry))
