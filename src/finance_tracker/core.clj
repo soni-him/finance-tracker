@@ -103,13 +103,15 @@
   "Uses authorized credentials to build and return a Google Sheets API service object
    which is used to make API calls."
   [credentials]
-  (println "INFO: Building Google Sheets service (using direct constructor)...")
+  (println "INFO: Building Google Sheets service...")
   (try
     (let [http-transport (GoogleNetHttpTransport/newTrustedTransport)
           json-factory (GsonFactory/getDefaultInstance)
-          http-credentials (HttpCredentialsAdapter. credentials)  ;; Wrap credentials
-          service (Sheets. http-transport json-factory http-credentials)]
-      (println "INFO: Google Sheets service built successfully (using direct constructor).")
+          http-credentials (HttpCredentialsAdapter. credentials)
+          service (-> (Sheets$Builder. http-transport json-factory http-credentials)
+                      (.setApplicationName APPLICATION_NAME)
+                      (.build))]
+      (println "INFO: Google Sheets service built successfully.")
       service)
     (catch Exception e
       (println (str "ERROR: Failed to build Google Sheets service: " (.getMessage e)))
