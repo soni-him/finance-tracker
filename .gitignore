@@ -14,3 +14,7 @@ pom.xml.asc
 
 resources/clever-dolphin-456211-k8-b1f5d125a5a9.json
 config.edn
+
+# Neovim / LSP / Linting caches
+.clj-kondo/
+.lsp/
