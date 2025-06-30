@@ -13,6 +13,7 @@
                  [com.google.apis/google-api-services-sheets "v4-rev20250211-2.0.0"]
                  [cheshire/cheshire "5.13.0"]
                  [clj-http "3.13.0"]]
+  :plugins [[cider/cider-nrepl "0.42.1"]]
   :main ^:skip-aot finance-tracker.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all
