@@ -1,67 +1,111 @@
-;; src/finance-tracker/web.clj (UPDATED POST handler)
+;; src/finance-tracker/web.clj
 (ns finance-tracker.web
   (:require [compojure.core :refer [defroutes POST GET]]
             [compojure.route :as route]
             [ring.middleware.json :refer [wrap-json-body wrap-json-response]]
             [ring.adapter.jetty :refer [run-jetty]]
-            [finance-tracker.core :as core]))
+            [clojure.string :as str] ; Needed for bank-sms? filtering
+            [cheshire.core :as json] ; Needed for error body/potential manual JSON issues
+            [finance-tracker.core :as core])) ; To access core functions and Java classes
+
+;; --- GLOBAL ATOMS FOR INITIALIZED SERVICES/CONFIGS ---
+;; These atoms will hold the config, Sheets service, API key, and spreadsheet ID
+;; They are initialized ONCE at application startup (from core.clj/-main).
+;; Webhook handlers will then read from these atoms for performance.
+(defonce app-config-atom (atom nil))
+(defonce sheets-service-atom (atom nil))
+(defonce open-ai-api-key-atom (atom nil))
+(defonce spreadsheet-id-atom (atom nil))
+
+;; Function to be called ONCE from core.clj/-main to initialize these atoms
+(defn init-web-service [config service api-key spreadsheet-id]
+  (reset! app-config-atom config)
+  (reset! sheets-service-atom service)
+  (reset! open-ai-ai-key-atom api-key)
+  (reset! spreadsheet-id-atom spreadsheet-id)
+  (println "INFO: Web service initialized with API keys and Sheets service."))
+
+;; --- Bank SMS Filtering Helpers ---
+(def bank-sender-ids #{"AX-CENTBK-S" "AD-CENTBK-S" "JD-CENTBK-S"}) ; Add your exact bank sender IDs here
+(def bank-identifier "CENTBK") ; A keyword to search for in sender names
+
+(defn bank-sms? [from]
+  (let [lower-from (str/lower-case from)] ; Convert to lowercase for robust matching
+    (or (contains? bank-sender-ids from)
+        (str/includes? lower-from (str/lower-case bank-identifier))))) ; Check for identifier substring
 
 ;; === Webhook Handler ===
 (defroutes app-routes
   (POST "/sms-webhook" request
     (println "\n--- Received SMS Webhook ---")
-    ;; No need to slurp or parse here if wrap-json-body is used!
-    ;; (:body request) will ALREADY be the parsed Clojure map
-
-    ;; Inside your POST "/sms-webhook" request handler
 
     (try
-      ;; Access the payload directly from (:body request)
-      (let [payload (:body request)
-            from (:from payload)
-            text (:text payload)
-            sent-stamp (:sentStamp payload)]
-        (println "Parsed Webhook Payload (via wrap-json-body):")
-        (println "  From:" from)
-        (println "  Text:" text)
-        (println "  Sent Timestamp:" sent-stamp)
+      (let [payload (:body request) ; Payload is already a Clojure map due to wrap-json-body
+            sms-text (:text payload) ; Extract the SMS text from the webhook payload
+            sms-from (:from payload)
+            sent-stamp (:sentStamp payload)
 
-        ;; TODO: Integrate with your existing OpenAI/Google Sheets logic here.
-        {:status 200 :body "SMS Webhook received successfully!"})
+            ;; --- RETRIEVE SERVICES/KEYS FROM ATOMS ---
+            current-open-ai-api-key @open-ai-api-key-atom
+            current-sheets-service @sheets-service-atom
+            current-spreadsheet-id @spreadsheet-id-atom]
+
+        ;; Safety check: Ensure services are initialized (should be by -main)
+        (if (or (nil? current-open-ai-api-key) (nil? current-sheets-service) (nil? current-spreadsheet-id))
+          (do (println "ERROR: Web service not fully initialized. Ensure `(-main)` was run from REPL.")
+              {:status 500 :body {:error "Server not fully initialized. Please ensure setup is complete."}})
+
+          ;; --- FILTERING LOGIC ---
+          (if (bank-sms? sms-from)
+            (do
+              (println "INFO: Processing Bank SMS from: " sms-from)
+              (println "SMS text: " sms-text)
+              ;; 1. Call OpenAI API with the SMS text
+              (let [extracted-data (core/extract-with-open-ai sms-text current-open-ai-api-key)
+                    ;; 2. Prepare data for Google Sheets
+                    row [(get extracted-data "type") (get extracted-data "amount") (get extracted-data "date")]
+                    value-range (doto (core/ValueRange.) (.setValues [row]))
+
+                    ;; 3. Update Google Sheet (append new row)
+                    range-to-update "Sheet1!A:C"
+                    update-response (.append (.values (.spreadsheets current-sheets-service))
+                                             current-spreadsheet-id
+                                             range-to-update
+                                             value-range)]
+
+                (.setValueInputOption update-response "USER_ENTERED")
+                (.execute update-response)
+                (println "INFO: Data written to Google Sheet. Extracted:" extracted-data)
+
+                {:status 200 :body {:message "Bank SMS processed and sheet updated successfully!"
+                                    :extracted_data extracted-data}}))
+            (do
+              (println "INFO: Ignoring non-bank SMS from:" sms-from "Text:" sms-text)
+              {:status 200 :body {:message "SMS received but ignored (not from a known bank sender)."}})))
+          ))
       (catch Exception e
-        (println (str "ERROR processing webhook: " (.getMessage e) " - " (.getCause e)))
-        ;; UPDATED ERROR RESPONSE HERE:
-        {:status 400 :body {:error (str "Error processing webhook: " (.getMessage e))}})) ; <--- YOUR SUGGESTION APPLIED
-    )
-;; Optional: A simple GET route to check if the server is running
+        (println (str "FATAL ERROR in webhook handler: " (.getMessage e) " - " (.getCause e)))
+        {:status 400 :body {:error (str "Error processing webhook: " (.getMessage e))}})))
+
   (GET "/" []
     {:status 200 :body "Finance Tracker Webhook Listener is running!"})
 
-  ;; Default route for anything not matched
   (route/not-found "<h1>Page not found</h1>"))
 
-;; Wrap the routes with middleware for JSON body parsing and response formatting
-;; This 'app' handler is what is referenced in your project.clj :ring {:handler ...}
 (def app
   (-> app-routes
-      (wrap-json-body {:keywords? true}) ; Automatically parses JSON request body into a Clojure map with keywords
-      wrap-json-response)) ; Automatically converts Clojure map responses to JSON
+      (wrap-json-body {:keywords? true})
+      wrap-json-response))
 
-;; Function to start the web server (called from core.clj)
-(defn start-web-server []
-  (println "INFO: Starting web server on port 3000...")
-  (run-jetty app {:port 3000 :join? false}) ; :join? false keeps REPL alive
-  (println "INFO: Web server started on http://localhost:3000"))
-
-;; Function to stop the web server (useful for development in REPL)
-(defonce server (atom nil))
+;; Server control functions
+(defonce server-instance (atom nil))
 
 (defn start-server-and-set-atom []
-  (reset! server (run-jetty app {:port 3000 :join? false}))
+  (reset! server-instance (run-jetty app {:port 3000 :join? false}))
   (println "INFO: Web server started on http://localhost:3000"))
 
 (defn stop-server-from-atom []
-  (when @server
-    (.stop @server)
-    (reset! server nil)
+  (when @server-instance
+    (.stop @server-instance)
+    (reset! server-instance nil)
     (println "INFO: Web server stopped.")))
